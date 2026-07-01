@@ -1,15 +1,8 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
 function buildSystem(level) {
   const lvMap = {
-    beginner:
-      "A1–A2: use very simple words and short sentences. Focus only on the most critical error.",
-    intermediate:
-      "B1–B2: conversational English, grammar errors expected. Correct up to 2 errors.",
-    advanced:
-      "C1–C2: near-native. Focus on nuance, idioms, style. Correct subtle mistakes.",
+    beginner: "A1–A2: use very simple words and short sentences. Focus only on the most critical error.",
+    intermediate: "B1–B2: conversational English, grammar errors expected. Correct up to 2 errors.",
+    advanced: "C1–C2: near-native. Focus on nuance, idioms, style. Correct subtle mistakes.",
   };
   return `You are an enthusiastic, warm English tutor for Atena Learning English School. Student level: ${lvMap[level] || lvMap["intermediate"]}
 
@@ -34,22 +27,32 @@ export async function POST(req) {
       return Response.json({ error: "Invalid messages" }, { status: 400 });
     }
 
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      systemInstruction: buildSystem(level || "intermediate"),
-    });
+    const apiKey = process.env.GEMINI_API_KEY;
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
-    const history = messages.slice(0, -1).map((m) => ({
+    const contents = messages.map((m) => ({
       role: m.role === "assistant" ? "model" : "user",
       parts: [{ text: m.content }],
     }));
-    const lastMessage = messages[messages.length - 1];
 
-    const chat = model.startChat({ history });
-    const result = await chat.sendMessage(lastMessage.content);
-    const text = result.response.text();
+    const body = {
+      system_instruction: { parts: [{ text: buildSystem(level || "intermediate") }] },
+      contents,
+      generationConfig: { maxOutputTokens: 1000, temperature: 0.9 },
+    };
 
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error?.message || "Gemini API error");
+
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
     return Response.json({ text });
+
   } catch (err) {
     console.error(err);
     return Response.json({ error: err.message }, { status: 500 });
